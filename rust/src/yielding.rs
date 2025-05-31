@@ -1,64 +1,77 @@
+use downcast_rs::{impl_downcast, Downcast};
 use godot::prelude::*;
+use std::fmt::Debug;
 
 use crate::prelude::*;
 
 /// Possible wait modes for coroutines.
-/// 
+///
 /// See [frames], [seconds] and [KeepWaiting]
 pub enum SpireYield {
-	Frames(i64),
-	Seconds(f64),
-	Dyn(Box<dyn KeepWaiting>),
+    Frames(i64),
+    Seconds(f64),
+    Dyn(Box<dyn KeepWaiting>),
 }
 
-pub trait KeepWaiting {
-	/// The coroutine calls this to check if it should keep waiting.
-	/// 
-	/// Execution will not resume as long as this returns true.
-	/// 
-	/// This will be polled on every [_process](INode::process) or [_physics_process](INode::physics_process), 
-	/// depending on the configuration.
-	fn keep_waiting(&mut self, delta_time: f64) -> bool;
+impl Debug for SpireYield {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpireYield::Frames(frames) => f.debug_tuple("Yield::Frames").field(frames).finish(),
+            SpireYield::Seconds(seconds) => f.debug_tuple("Yield::Seconds").field(seconds).finish(),
+            SpireYield::Dyn(_) => f.debug_tuple("Yield::Dyn").finish(),
+        }
+    }
 }
 
-impl<T: FnMut() -> bool> KeepWaiting for T {
-	fn keep_waiting(&mut self, _delta_time: f64) -> bool {
-		self()
-	}
+pub trait KeepWaiting: Downcast {
+    /// The coroutine calls this to check if it should keep waiting.
+    ///
+    /// Execution will not resume as long as this returns true.
+    ///
+    /// This will be polled on every [_process](INode::process) or [_physics_process](INode::physics_process),
+    /// depending on the configuration.
+    fn keep_waiting(&mut self, delta_time: f64) -> bool;
+}
+impl_downcast!(KeepWaiting);
+
+impl<T: FnMut() -> bool + 'static> KeepWaiting for T {
+    fn keep_waiting(&mut self, _delta_time: f64) -> bool {
+        self()
+    }
 }
 
 impl KeepWaiting for Gd<SpireCoroutine> {
-	fn keep_waiting(&mut self, _delta_time: f64) -> bool {
-		// Coroutines auto-destroy themselves when they finish
-		self.is_instance_valid()
-	}
+    fn keep_waiting(&mut self, _delta_time: f64) -> bool {
+        // Coroutines auto-destroy themselves when they finish
+        self.is_instance_valid()
+    }
 }
 
 pub trait WaitUntilFinished {
-	fn wait_until_finished(&self) -> SpireYield;
+    fn wait_until_finished(&self) -> SpireYield;
 }
 
 impl WaitUntilFinished for Gd<SpireCoroutine> {
-	fn wait_until_finished(&self) -> SpireYield {
-		SpireYield::Dyn(Box::new(self.clone()))
-	}
+    fn wait_until_finished(&self) -> SpireYield {
+        SpireYield::Dyn(Box::new(self.clone()))
+    }
 }
 
 impl WaitUntilFinished for SpireCoroutine {
-	fn wait_until_finished(&self) -> SpireYield {
-		self.to_gd().wait_until_finished()
-	}
+    fn wait_until_finished(&self) -> SpireYield {
+        self.to_gd().wait_until_finished()
+    }
 }
 
 /// Coroutine pauses execution as long as `f` returns true.
-/// 
+///
 /// `f` is invoked whenever the coroutine is polled.
-/// 
-/// If un-paused, the coroutine is polled either on [_process](INode::process) 
+///
+/// If un-paused, the coroutine is polled either on [_process](INode::process)
 /// or [_physics_process](INode::physics_process)
-/// 
+///
 /// # Example
-/// 
+///
 /// ```no_run
 /// #![feature(coroutines)]
 /// use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,14 +88,14 @@ impl WaitUntilFinished for SpireCoroutine {
 ///
 /// ```
 pub fn wait_while(f: impl FnMut() -> bool + 'static) -> SpireYield {
-	SpireYield::Dyn(Box::new(f))
+    SpireYield::Dyn(Box::new(f))
 }
 
 /// Coroutine resumes execution once `f` returns true.
-/// 
-/// `f` is invoked whenever the coroutine is polled. 
-/// 
-/// If un-paused, the coroutine is polled either on [process](INode::process) 
+///
+/// `f` is invoked whenever the coroutine is polled.
+///
+/// If un-paused, the coroutine is polled either on [process](INode::process)
 /// or [physics_process](INode::physics_process))
 ///
 /// # Example
@@ -103,12 +116,12 @@ pub fn wait_while(f: impl FnMut() -> bool + 'static) -> SpireYield {
 ///
 /// ```
 pub fn wait_until(mut f: impl FnMut() -> bool + 'static) -> SpireYield {
-	SpireYield::Dyn(Box::new(move || !f()))
+    SpireYield::Dyn(Box::new(move || !f()))
 }
 
 /// Yield for a number of frames.
-/// 
-/// A frame equals a single [process](INode::process) 
+///
+/// A frame equals a single [process](INode::process)
 /// or [physics_process](INode::physics_process)) call, depending on the coroutine's [PollMode].
 ///
 /// # Example
@@ -129,15 +142,15 @@ pub fn wait_until(mut f: impl FnMut() -> bool + 'static) -> SpireYield {
 ///
 /// ```
 pub const fn frames(frames: i64) -> SpireYield {
-	SpireYield::Frames(frames)
+    SpireYield::Frames(frames)
 }
 
 /// Yield for a specific amount of engine time.
-/// 
+///
 /// The time counter is affected by [Engine::time_scale](Engine::get_time_scale)
-/// 
+///
 /// The time counter is also dependent on the coroutine's [PollMode].
-/// 
+///
 /// Time does not pass if the coroutine's not being processed.
 ///
 /// # Example
@@ -158,5 +171,5 @@ pub const fn frames(frames: i64) -> SpireYield {
 ///
 /// ```
 pub const fn seconds(seconds: f64) -> SpireYield {
-	SpireYield::Seconds(seconds)
+    SpireYield::Seconds(seconds)
 }
